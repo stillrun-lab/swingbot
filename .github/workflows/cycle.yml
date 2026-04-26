@@ -1,0 +1,49 @@
+name: Swingbot — daily cycle
+
+on:
+  schedule:
+    - cron: "30 13 * * 1-5"   # 9:30 ET (EDT) — market open
+    - cron: "30 14 * * 1-5"   # 9:30 ET (EST)
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: swingbot-cycle
+
+jobs:
+  cycle:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+
+      - run: pip install -r requirements.txt
+
+      - name: Run scan cycle
+        env:
+          ALPACA_API_KEY: ${{ secrets.ALPACA_API_KEY }}
+          ALPACA_SECRET_KEY: ${{ secrets.ALPACA_SECRET_KEY }}
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
+        # Default mode is "scan" (read-only). Change to --mode enter to go live.
+        run: python swingbot.py --mode scan
+
+      - name: Persist positions state
+        if: always()
+        run: |
+          git config user.name "swingbot"
+          git config user.email "swingbot@users.noreply.github.com"
+          if [ -f state/positions.json ]; then
+            git add -f state/positions.json
+            if ! git diff --staged --quiet; then
+              git commit -m "state: post-cycle update"
+              git push
+            fi
+          fi
